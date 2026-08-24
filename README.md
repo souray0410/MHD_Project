@@ -789,7 +789,7 @@ See [LICENSE](LICENSE) for details.
 
 # 18. Author
 
-**Souray Meng**
+**孟号丁**
 
 GitHub: [souray0410](https://github.com/souray0410)
 
@@ -1256,6 +1256,6 @@ See [LICENSE](LICENSE) for details.
 
 # 16. Author
 
-**Souray Meng**
+**Haoding Souray Meng**
 
 GitHub: [souray0410](https://github.com/souray0410)
