@@ -1,9 +1,3 @@
-对，这次我明白你的意思了：**README 本身就是给 GitHub 访客看的正式双语项目主页**，所以我要直接给你一整份可以覆盖 `README.md` 的 Markdown 源码；而且 V1 的目录说明要按照你现在仓库的实际情况写成 **`node_toolkit/` + `node_pipline/` 是 V1 的核心实现**，`V1/` 目前只是版本归档/占位。
-
-我也重新对照了你上传的仓库：目前实际目录里确实是 `node_toolkit/`、`node_pipline/`、`V2/mhd_toolkit/` 和 `V3/mhd_toolkit/`；V3 核心代码也确实已经使用了 `MHD_Node / MHD_Edge / MHD_Topo / MHD_Graph`、双状态 `initial_state/current_state`、`transfer_mode` 以及多 level 的 `role_matrices/sort_matrices`。所以这版 README 会按照**代码真实演化**来写，而不是只按概念包装。
-
-下面这一整块你可以**直接复制，覆盖 GitHub 的 `README.md`**。
-
 # MHD Project
 
 > **Multi-Hypergraph Dynamic Project**
