@@ -1,13 +1,16 @@
 # MHD Project
 
 > **Multi-Hypergraph Dynamic Project**
-> A unified deep-learning framework that models neural computation as a dynamic multi-hypergraph composed of feature-map/state nodes, computational hyperedges, and explicit execution topology.
+> A dynamic hypergraph-based framework for state-driven neural computation.
+
+**Current Release: V3**
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-1.10%2B-ee4c2c.svg)](https://pytorch.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![GitHub](https://img.shields.io/badge/GitHub-souray0410%2FMHD_Project-black?logo=github)](https://github.com/souray0410/MHD_Project)
-[![Latest Release](https://img.shields.io/github/v/release/souray0410/MHD_Project?label=Latest%20Release)](https://github.com/souray0410/MHD_Project/releases/latest)
+[![GitHub](https://img.shields.io/badge/GitHub-MHD_Project-black?logo=github)](https://github.com/souray0410/MHD_Project)
+
+**Latest Release:** [V3](https://github.com/souray0410/MHD_Project/releases/latest)
 
 ---
 
@@ -15,72 +18,160 @@
 
 ## 1. 项目简介
 
-**MHD Project（Multi-Hypergraph Dynamic Project，多超图动态项目）** 是一个持续演化的深度学习计算框架，核心思想是将神经网络中的**特征图与中间表示建模为节点（Node）**，将**卷积、变换、融合以及其他计算操作建模为超边（Hyperedge）**，并通过显式的**拓扑结构（Topology）**组织整个计算过程。
+**MHD Project（Multi-Hypergraph Dynamic Project）** 是一个面向深度学习计算结构的动态超图框架。
 
-与传统的顺序式神经网络不同，MHD 不将网络仅仅描述为：
+MHD 的核心思想是将神经网络计算抽象为两个相互对称的基本组成部分：
+
+* **State（状态）**：表示计算过程中节点所承载的数据状态。
+* **Computation（计算）**：表示作用于一个或多个 State 的计算过程。
+
+因此，MHD 的核心计算可以抽象为：
 
 ```text
-Input → Layer → Layer → Layer → Output
+State
+  │
+  ▼
+Computation
+  │
+  ▼
+State
 ```
 
-而是将神经计算抽象为：
+多个 State 和 Computation 通过显式的 Topology 组织起来，形成完整的动态计算图：
 
 ```text
-                 Hyperedge
-              ┌─────────────┐
-              │ Computation │
-              └──────┬──────┘
-                     ↓
-Node A ──────────── Node C
-   │                   ↑
-   └──── Hyperedge ────┘
-            ↑
-          Node B
+                 Computation
+              ┌──────────────┐
+              │      C1      │
+              └──────┬───────┘
+                     │
+                     ▼
+                   State
+                  /     \
+                 /       \
+                ▼         ▼
+        Computation      Computation
+             C2              C3
+              │               │
+              ▼               ▼
+            State           State
 ```
 
-在这一抽象下：
+MHD 的目标不是简单地重新实现传统神经网络，而是建立一种更加明确的结构化表示：
 
-* **Node** 表示特征图、状态或中间表示；
-* **Hyperedge** 表示作用于一个或多个节点的计算操作；
-* **Topology** 描述节点与超边之间的连接关系、参数顺序以及执行顺序；
-* **State Transition** 描述节点状态在计算过程中的更新与传播。
-
-V1、V2 和 V3 并不是三个互相独立的项目，而是同一套 MHD 核心思想逐步演化的三个阶段。
-
-> **当前核心版本：V3**
-> V1 和 V2 保留作为 MHD 的历史演化与架构基础，后续开发以 V3 为主要框架。
+> **State 定义计算对象，Computation 定义计算过程，Topology 定义计算结构与执行关系。**
 
 ---
 
-## 2. 核心思想
+## 2. 核心抽象
 
-### 2.1 节点：Feature Map / State
+### 2.1 State
 
-在 MHD 中，一个节点不仅仅是一个 tensor 容器，它代表网络计算中的一个**状态单元**。
+在 MHD 中，`State` 是整个计算系统中的基本信息载体。
 
-V3 中，一个 `MHD_Node` 具有：
+对于深度学习网络而言，State 可以承载：
 
-* `initial_state`：初始状态；
-* `current_state`：当前计算状态；
-* `transfer_mode`：状态融合/转移方式。
+* 中间特征；
+* 隐状态；
+* 输入状态；
+* 输出状态；
+* 不同计算阶段产生的动态表示。
 
-因此，一个节点可以经历：
+V3 中进一步区分：
+
+```text
+initial_state
+current_state
+```
+
+其中：
+
+* `initial_state` 表示状态的初始值；
+* `current_state` 表示当前计算过程中正在演化的状态。
+
+因此，State 不再只是一个静态 Tensor，而是一个具有生命周期的计算对象。
+
+---
+
+### 2.2 Computation
+
+`Computation` 是 MHD 中对实际计算过程的统一抽象。
+
+在超图表示中，一个 Computation 可以同时连接多个输入 State 和多个输出 State：
+
+```text
+State A ─┐
+         │
+State B ─┼──► Computation C ───► State D
+         │
+State E ─┘
+```
+
+因此，一个 Computation 可以表达：
+
+* Convolution
+* Normalization
+* Activation
+* Pooling
+* Projection
+* Feature fusion
+* Tensor transformation
+* 其他自定义计算操作
+
+在代码层面，V2 / V3 通过 `MHD_Edge` 对这一计算单元进行实现。
+
+---
+
+### 2.3 Topology
+
+Topology 描述 State 与 Computation 之间的结构关系，并决定：
+
+* 哪些 State 参与某个 Computation；
+* State 在 Computation 中的输入/输出角色；
+* 参数顺序；
+* Computation 的依赖关系；
+* Computation 的执行顺序；
+* 不同执行阶段之间的关系。
+
+因此：
+
+```text
+State         → What is being computed
+Computation  → How it is computed
+Topology     → Where and when it is computed
+```
+
+---
+
+## 3. 动态状态计算
+
+MHD 与传统静态计算图的重要区别之一，是 State 可以随着 Computation 不断更新。
+
+V3 中，一个典型的计算过程可以抽象为：
 
 ```text
 Initial State
-      ↓
+      │
+      ▼
 Current State
-      ↓
-Hyperedge Computation
-      ↓
+      │
+      ▼
+Computation
+      │
+      ▼
 Incoming State
-      ↓
-Transfer Mode
-      ↓
-Updated Current State
+      │
+      ▼
+State Transition
+      │
+      ▼
+Updated State
+      │
+      ▼
+Next Topology Level
 ```
 
-V3 当前支持的状态融合模式包括：
+V3 的 State 支持多种状态融合方式：
 
 ```text
 replace
@@ -91,203 +182,94 @@ min
 mul
 ```
 
-这种设计使节点从传统神经网络中的“静态 feature tensor”进一步演化为具有明确生命周期的**状态节点**。
+这使得状态更新本身成为计算结构的一部分。
 
 ---
 
-### 2.2 超边：Computation
+# 4. Version Evolution
 
-MHD 中的计算操作由 `MHD_Edge` 表示。
+MHD Project 并不是三个相互独立的项目。
 
-一个超边可以连接多个输入节点和多个输出节点：
+**V1、V2、V3 是同一套核心思想不断形式化、抽象化和扩展的三个阶段。**
+
+整体演化路线为：
 
 ```text
-Node A ─┐
+V1
+│
+├── State-oriented computation
+├── Computation-oriented network structure
+└── Node-based experimental framework
         │
-Node B ─┼──→ Hyperedge E ──→ Node C
-        │                 └──→ Node D
-Node E ─┘
+        ▼
+V2
+│
+├── Formal Hypergraph abstraction
+├── Explicit State
+├── Explicit Computation
+└── Explicit Topology
+        │
+        ▼
+V3
+│
+├── Multi-level Topology
+├── Stateful execution
+├── State transition
+├── Flexible Computation
+└── Graph composition
 ```
-
-因此，超边并不局限于传统意义上的单输入单输出层。
-
-超边内部可以组合：
-
-* `torch.nn.Module`
-* callable function
-* `functools.partial`
-* 字符串形式的 tensor operation
-
-因此，卷积、归一化、激活、池化、融合以及其他张量变换都可以被抽象为超边内部的计算过程。
 
 ---
 
-### 2.3 拓扑：Execution Structure
+# 5. V1 — Node-based Experimental Framework
 
-MHD 将网络的**结构**与具体的**计算操作**进行分离。
+V1 是 MHD Project 的起始版本。
 
-Topology 负责描述：
+这一阶段的核心目标是：
 
-* 哪些节点参与某个超边；
-* 节点在超边中的输入/输出角色；
-* 输入和输出参数的顺序；
-* 超边的执行顺序；
-* 不同计算 level 之间的依赖关系。
+> **将传统神经网络中的计算过程从单纯的 sequential layer structure 转换为 State / Computation oriented structure。**
 
-在 V2 中，这主要通过：
+V1 的主要代码由：
 
 ```text
-role_matrix
-sort_matrix
+V1/
+├── node_toolkit/
+└── node_pipline/
 ```
 
-实现。
+组成。
 
-其中：
+### `node_toolkit`
 
-```text
--1 → input / head
- 0 → inactive
-+1 → output / tail
-```
+负责早期 MHD 网络中的底层组件，包括：
 
-V3 则进一步扩展为：
+* Network construction
+* Dataset utilities
+* Result management
+* Training utilities
+* Dynamic computational modules
 
-```text
-role_matrices = [
-    level 0,
-    level 1,
-    ...
-]
+### `node_pipline`
 
-sort_matrices = [
-    level 0,
-    level 1,
-    ...
-]
-```
+负责实验、训练和测试流程，包括不同版本的 UniConnNet 实验。
 
-因此，V3 的拓扑不再只是一个静态二维连接关系，而可以描述**多层级的动态执行结构**。
-
----
-
-## 3. 状态驱动的计算模型
-
-MHD 的一个核心设计方向，是将网络计算从简单的 feed-forward tensor transformation 扩展为**state-aware computation**。
-
-从抽象层面来看：
-
-```mermaid
-flowchart TD
-    A[Initial State] --> B[Current State]
-    B --> C[Hyperedge Operation]
-    C --> D[Incoming State]
-    D --> E[Transfer Mode]
-    E --> F[Updated Current State]
-    F --> G[Next Topology Level]
-    G --> C
-```
-
-这里的核心不是把 MHD 简单定义为传统意义上的有限状态机，而是通过明确的**状态转移机制（state transition mechanism）**使图中的节点具有动态计算状态。
-
-这使得网络计算可以从：
-
-```text
-Layer 1 → Layer 2 → Layer 3
-```
-
-扩展为：
+V1 建立了 MHD 最早期的核心设计：
 
 ```text
 State
-  ↓
-Topology
-  ↓
-Hyperedge
-  ↓
-State Update
-  ↓
-Next Level
-  ↓
-...
+   ↓
+Computation
+   ↓
+State
 ```
+
+并开始将复杂网络中的连接关系从普通 layer stack 中分离出来。
 
 ---
 
-# 4. MHD 的版本演化
+# 6. V2 — Formal Hypergraph Framework
 
-MHD Project 的 V1、V2、V3 是同一核心思想的持续演化。
-
----
-
-## V1 — Node-Oriented Architecture
-
-V1 建立了 MHD 最早期的核心思想：
-
-> **Feature Map → Node**
-> **Computation / Connection → Hyperedge-like structure**
-
-V1 的实际核心代码并不位于当前 `V1/` 目录中，而主要保存在项目根目录下：
-
-```text
-node_toolkit/
-node_pipline/
-```
-
-其中：
-
-### `node_toolkit/`
-
-主要承担网络、数据和结果相关的底层组件。
-
-例如：
-
-```text
-node_net.py
-node_dataset.py
-node_results.py
-node_utils.py
-```
-
-其中 `node_net.py` 进一步定义了：
-
-* `DNet`
-* `HDNet`
-* `MHDNet`
-
-形成了从动态卷积模块到超边网络，再到多子图网络的早期架构。
-
-### `node_pipline/`
-
-主要承担实验和训练流程，例如：
-
-```text
-node_train.py
-train_UniConnNetI.py
-train_UniConnNetII.py
-train_UniConnNetIII.py
-test_UniConnNetI.py
-test_UniConnNetII.py
-test_UniConnNetIII.py
-```
-
-因此，V1 的核心贡献并不是一个固定模型，而是建立了：
-
-```text
-Node
-  ↓
-Hyperedge-based computation
-  ↓
-Graph-like neural architecture
-```
-
-这一基础范式。
-
----
-
-# 5. V2 — Formalized Hypergraph Framework
-
-V2 将 V1 中已经存在的 Node / Hyperedge 思想进一步形式化为一个独立的 MHD Framework。
+V2 对 V1 的设计进行进一步抽象，将原本的实验型网络结构正式组织为通用的 Hypergraph Framework。
 
 V2 的核心组件为：
 
@@ -298,34 +280,51 @@ MHD_Topo
 MHD_Graph
 ```
 
-并通过：
+对应到统一 MHD abstraction：
+
+```text
+MHD_Node
+   ↓
+State
+
+MHD_Edge
+   ↓
+Computation
+
+MHD_Topo
+   ↓
+Topology
+
+MHD_Graph
+   ↓
+Complete Computational Graph
+```
+
+V2 进一步引入：
 
 ```text
 role_matrix
 sort_matrix
 ```
 
-明确表达：
+用于显式描述：
 
-* 节点与超边之间的连接关系；
+* State 与 Computation 的连接关系；
 * 输入/输出角色；
-* 参数传递顺序；
-* 拓扑执行顺序。
+* Computation 的执行顺序；
+* Topological dependencies。
 
-与此同时，V2 引入了更加明确的：
+V2 因此完成了从：
 
-```text
-initial_state
-current_state
-```
+> **Experimental Node Framework**
 
-设计，使节点状态不再完全依赖外部 forward 过程中的临时 tensor。
+到：
 
-V2 因此完成了一个重要转变：
+> **Formal Hypergraph Computational Framework**
 
-> **从“Node-based neural network implementation”走向“general hypergraph computational framework”。**
+的转变。
 
-V2 代码位于：
+V2 位于：
 
 ```text
 V2/
@@ -337,181 +336,175 @@ V2/
 
 ---
 
-# 6. V3 — Multi-Level Dynamic Hypergraph Framework
+# 7. V3 — Multi-Level Dynamic Hypergraph Framework
 
-**V3 是当前 MHD Project 的核心版本。**
+**V3 是当前 MHD Project 的核心版本，也是当前 Release 的版本。**
 
-V3 保留了 V1/V2 的核心抽象：
+V3 保留 V1 / V2 的统一抽象：
 
 ```text
-Node
-Edge
+State
+Computation
 Topology
 Graph
 ```
 
-同时进一步扩展了：
+同时进一步扩展为：
 
-* 多层级拓扑；
-* 显式状态转移；
-* 动态节点状态；
-* 多种状态融合模式；
-* 更灵活的 hyperedge operation；
-* graph composition / graph merging。
+```text
+State-aware
+Multi-level
+Dynamic
+Composable
+Hypergraph
+```
 
 ---
 
-## 6.1 Multi-Level Topology
+## 7.1 Multi-Level Topology
 
-V3 最大的结构性升级之一，是将单一拓扑扩展为多 level topology：
+V3 将单一 Topology 扩展为多 Level Topology：
 
 ```text
 Level 0
-    ↓
-Hyperedges
-    ↓
-Updated Node States
-    ↓
+   │
+   ▼
+Computation
+   │
+   ▼
+State Update
+   │
+   ▼
 Level 1
-    ↓
-Hyperedges
-    ↓
-Updated Node States
-    ↓
+   │
+   ▼
+Computation
+   │
+   ▼
+State Update
+   │
+   ▼
 Level 2
-    ↓
+   │
+   ▼
 ...
 ```
 
-对应实现：
+对应代码结构：
 
-```python
+```text
 role_matrices
 sort_matrices
 ```
 
-每一个 level 都拥有自己的 role / sort matrix。
+每一个 Level 可以拥有独立的：
 
-V3 可以针对不同 level 独立执行拓扑排序和 edge dependency analysis，使网络结构能够表达更加复杂的分层计算过程。
+* Role Matrix
+* Sort Matrix
+* Computation dependency
+* Execution order
+
+因此 V3 可以表达比传统单层 DAG 更复杂的计算结构。
 
 ---
 
-## 6.2 Stateful Nodes
+## 7.2 Stateful Execution
 
-V3 的 `MHD_Node` 使用双状态机制：
+V3 中的 State 明确拥有：
 
 ```text
 initial_state
 current_state
 ```
 
-节点可以：
+并通过 State Transition 将 Computation 的输出继续传播到后续计算阶段。
 
-* reset 到初始状态；
-* 更新初始输入；
-* 在 forward 中持续更新 current state；
-* 根据 `transfer_mode` 融合新的输入状态。
-
-这使得 node 从单纯的 feature container 演化为真正参与计算过程的**state-bearing computational unit**。
+这使得图结构不只是一个静态连接关系，而是一个具有动态状态演化能力的计算系统。
 
 ---
 
-## 6.3 Flexible Hyperedge Operations
+## 7.3 Flexible Computation
 
-V3 的 `MHD_Edge` 支持一个 edge 内包含多个操作：
-
-```python
-edge_operations = [
-    operation_1,
-    operation_2,
-    operation_3,
-]
-```
-
-操作可以是：
+V3 中的 Computation 可以由多个操作组成：
 
 ```text
-nn.Module
-callable
-partial
-string tensor operation
+Computation C
+     │
+     ├── Operation 1
+     ├── Operation 2
+     ├── Operation 3
+     └── ...
 ```
 
-因此一个 hyperedge 可以代表：
+这些 Operation 可以由 PyTorch Modules 或其他 callable objects 构成。
+
+因此，一个 Computation 可以表示一个完整的计算 block，而不仅仅是一个单一 layer。
+
+---
+
+## 7.4 Graph Composition
+
+V3 进一步支持多个 Graph 的组合。
+
+多个子图可以被组合为更大的 MHD Graph：
 
 ```text
-Convolution
-   ↓
-Normalization
-   ↓
-Activation
-   ↓
-Pooling
+Graph A
+   │
+   ├────────┐
+   │        │
+   ▼        ▼
+Graph B   Graph C
+   │        │
+   └────┬───┘
+        ▼
+   MHD Graph
 ```
 
-或者更复杂的多输入、多输出计算。
+在组合过程中，V3 可以对 State、Computation 和 multi-level Topology 进行相应的对齐与合并。
+
+这使 MHD Graph 可以进一步作为模块化计算单元进行复用。
 
 ---
 
-## 6.4 Graph Composition
+# 8. Unified MHD Model
 
-V3 进一步支持多个 MHD graphs 的组合。
-
-`merge_graph()` 能够处理：
-
-* node 对齐；
-* edge 对齐；
-* topology 对齐；
-* multi-level topology padding；
-* node state 合并。
-
-因此多个独立构建的 MHD subgraphs 可以进一步组合成更大的计算图。
-
-这一能力为模块化网络设计以及复杂架构组合提供了基础。
-
----
-
-# 7. Unified MHD Abstraction
-
-从 V1 到 V3，MHD 的核心抽象可以统一表示为：
+V1、V2、V3 的共同核心可以统一描述为：
 
 ```text
-                    MHD Graph
-                       │
-          ┌────────────┴────────────┐
-          │                         │
-        Nodes                    Hyperedges
-          │                         │
-     Feature / State           Computation
-          │                         │
-          └────────────┬────────────┘
-                       │
-                    Topology
-                       │
-               Execution Order
-                       │
-                State Transition
-                       │
-                 Next Level
+              MHD Graph
+                  │
+        ┌─────────┴─────────┐
+        │                   │
+      State             Computation
+        │                   │
+        └─────────┬─────────┘
+                  │
+               Topology
+                  │
+                  ▼
+          Execution Process
+                  │
+                  ▼
+            State Update
+                  │
+                  ▼
+             Next Level
 ```
 
-因此：
+因此，MHD 的基本计算关系可以概括为：
 
-| MHD Concept   | Neural Network Interpretation       |
-| ------------- | ----------------------------------- |
-| Node          | Feature Map / State                 |
-| Hyperedge     | Computational Operation             |
-| Topology      | Connectivity + Execution Order      |
-| Current State | Dynamic Intermediate Representation |
-| Transfer Mode | State Fusion / Transition           |
-| Graph         | Complete Computational Structure    |
-| Level         | Structured Execution Stage          |
+```text
+State → Computation → State
+```
+
+而完整网络则由多个这样的状态转换和计算关系组成。
 
 ---
 
-# 8. Project Structure
+# 9. Project Structure
 
-当前项目整体结构如下：
+当前项目的正式组织结构为：
 
 ```text
 MHD_Project/
@@ -520,28 +513,25 @@ MHD_Project/
 ├── LICENSE
 │
 ├── V1/
-│   └── ...
-│
-├── node_toolkit/
-│   ├── node_dataset.py
-│   ├── node_net.py
-│   ├── node_results.py
-│   ├── node_utils.py
-│   ├── reorgan.py
-│   └── split_Tr.py
-│
-├── node_pipline/
-│   ├── node_train.py
-│   ├── train_UniConnNetI.py
-│   ├── train_UniConnNetII.py
-│   ├── train_UniConnNetIII.py
-│   ├── test_UniConnNetI.py
-│   ├── test_UniConnNetII.py
-│   ├── test_UniConnNetIII.py
-│   └── MICCAI2026/
+│   ├── node_toolkit/
+│   │   ├── node_dataset.py
+│   │   ├── node_net.py
+│   │   ├── node_results.py
+│   │   ├── node_utils.py
+│   │   ├── reorgan.py
+│   │   └── split_Tr.py
+│   │
+│   └── node_pipline/
+│       ├── node_train.py
+│       ├── train_UniConnNetI.py
+│       ├── train_UniConnNetII.py
+│       ├── train_UniConnNetIII.py
+│       ├── test_UniConnNetI.py
+│       ├── test_UniConnNetII.py
+│       ├── test_UniConnNetIII.py
+│       └── ...
 │
 ├── V2/
-│   ├── NULL
 │   └── mhd_toolkit/
 │       ├── MHD_Framework_V2.py
 │       ├── MHD_Utils_V2.py
@@ -553,82 +543,13 @@ MHD_Project/
 │       └── MHD_Utils_V3.py
 │
 ├── contrast_model/
-│   ├── train_*.py
-│   └── test_*.py
 │
 ├── performance/
-│   ├── binary.py
-│   └── restore_npy.py
 │
 └── tools/
-    ├── print_folder.py
-    ├── save_delete.py
-    └── script_sequence.py
 ```
 
-### V1 Structure
-
-The original V1 implementation is primarily represented by:
-
-```text
-node_toolkit/
-node_pipline/
-```
-
-The `V1/` directory is retained as a version marker and historical placeholder.
-
-### V2 Structure
-
-```text
-V2/
-└── mhd_toolkit/
-```
-
-contains the first explicitly formalized MHD framework.
-
-### V3 Structure
-
-```text
-V3/
-└── mhd_toolkit/
-```
-
-contains the current core implementation.
-
----
-
-# 9. Current V3 Framework
-
-The current V3 core consists of:
-
-```text
-MHD_Framework_V3.py
-MHD_Utils_V3.py
-```
-
-### `MHD_Framework_V3.py`
-
-Provides the core computational abstractions:
-
-```text
-MHD_Node
-MHD_Edge
-MHD_Topo
-MHD_Graph
-```
-
-### `MHD_Utils_V3.py`
-
-Provides supporting utilities for:
-
-* dataset handling;
-* augmentation;
-* training;
-* validation;
-* inference;
-* monitoring;
-* checkpointing;
-* optimizer creation.
+> **Note:** V1 preserves the original experimental framework, while V2 and V3 use the more formal `mhd_toolkit` organization.
 
 ---
 
@@ -638,9 +559,11 @@ Provides supporting utilities for:
 
 Recommended environment:
 
-* Python 3.8+
-* PyTorch 1.10+
-* CUDA-capable GPU recommended for large 3D medical-imaging experiments
+```text
+Python 3.8+
+PyTorch 1.10+
+CUDA recommended for large-scale experiments
+```
 
 Common dependencies include:
 
@@ -655,13 +578,9 @@ tabulate
 tqdm
 ```
 
-Because the repository contains multiple historical versions and experimental pipelines, dependencies may vary between versions.
-
-For reproducible experiments, use the dependency configuration associated with the target version/release.
+For reproducible experiments, use the dependency configuration provided with the corresponding release.
 
 ---
-
-# 11. Installation and Setup
 
 ## Clone the Repository
 
@@ -670,66 +589,45 @@ git clone https://github.com/souray0410/MHD_Project.git
 cd MHD_Project
 ```
 
-## Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-> If a dedicated `requirements.txt` is provided in a release, use the release-specific dependency file for reproducibility.
+Install the dependencies required by the selected version.
 
 ---
 
-# 12. Download the Latest Release
+# 11. Latest Release
 
-The current development focus is **V3**.
+The **current release is V3**.
 
-For stable or reproducible usage, please use a tagged release instead of relying exclusively on the latest state of the `main` branch.
+For stable and reproducible usage, please use the latest tagged release:
 
-### Latest Release
+**[Download the latest V3 release](https://github.com/souray0410/MHD_Project/releases/latest)**
 
-[https://github.com/souray0410/MHD_Project/releases/latest](https://github.com/souray0410/MHD_Project/releases/latest)
+All releases are available at:
 
-### All Releases
+**[MHD Project Releases](https://github.com/souray0410/MHD_Project/releases)**
 
-[https://github.com/souray0410/MHD_Project/releases](https://github.com/souray0410/MHD_Project/releases)
+New development is primarily focused on **V3**.
 
 ---
 
-# 13. Usage
+# 12. Usage
 
 ## V1
 
-The V1-era experiments are mainly organized through:
+V1 experiments are located under:
 
 ```text
-node_pipline/
-node_toolkit/
+V1/
+├── node_toolkit/
+└── node_pipline/
 ```
 
-Typical entry points include training scripts such as:
-
-```bash
-python node_pipline/node_train.py
-```
-
-and the UniConnNet experiment scripts under:
-
-```text
-node_pipline/
-```
+The original training and experimental pipelines can be executed from `node_pipline`.
 
 ---
 
 ## V2
 
-V2 examples are provided under:
-
-```text
-V2/mhd_toolkit/MHD_Example_V2.py
-```
-
-and the framework can be imported from:
+V2 provides the formal MHD framework:
 
 ```python
 from V2.mhd_toolkit.MHD_Framework_V2 import (
@@ -744,13 +642,7 @@ from V2.mhd_toolkit.MHD_Framework_V2 import (
 
 ## V3
 
-For new research and development, use:
-
-```text
-V3/mhd_toolkit/
-```
-
-The main framework can be imported as:
+V3 is recommended for new development:
 
 ```python
 from V3.mhd_toolkit.MHD_Framework_V3 import (
@@ -761,24 +653,24 @@ from V3.mhd_toolkit.MHD_Framework_V3 import (
 )
 ```
 
-A minimal conceptual workflow is:
+A conceptual V3 workflow is:
 
 ```python
-node = MHD_Node(
+state = MHD_Node(
     id=0,
-    name="input",
+    name="state_0",
     initial_state=input_tensor,
 )
 
-edge = MHD_Edge(
+computation = MHD_Edge(
     id=0,
-    name="operation",
+    name="computation_0",
     edge_operations=[
         ...
     ],
 )
 
-topo = MHD_Topo(
+topology = MHD_Topo(
     role_matrices=[
         role_matrix_level_0,
         role_matrix_level_1,
@@ -790,116 +682,104 @@ topo = MHD_Topo(
 )
 
 graph = MHD_Graph(
-    nodes={node},
-    edges={edge},
-    topos={topo},
+    nodes={state},
+    edges={computation},
+    topos={topology},
 )
 
 graph.forward()
 ```
 
-The exact topology and operation configuration depends on the target architecture.
+The exact configuration depends on the target architecture.
 
 ---
 
-# 14. Visualization
+# 13. Design Principles
 
-MHD graphs can be represented through Mermaid-based graph descriptions.
+MHD is designed around four core principles.
 
-Example:
+### 1. State
 
-```python
-mermaid_code = graph.generate_mermaid()
-print(mermaid_code)
-```
+The fundamental information unit of the system is a dynamic **State**.
 
-This allows the computational structure to be inspected independently from the implementation details of the underlying operations.
+### 2. Computation
 
----
+All transformations are represented through explicit **Computations**.
 
-# 15. Application Direction
+### 3. Topology
 
-The original MHD framework was developed around complex medical-imaging tasks, including segmentation-oriented experiments.
+The relationship and execution order between State and Computation are explicitly represented by **Topology**.
 
-The broader MHD abstraction, however, is not limited to a single model family.
+### 4. Composition
 
-Because nodes represent feature/state units and hyperedges represent computational transformations, the framework is intended to provide a more general representation for:
+Complex networks can be constructed from smaller MHD computational structures.
 
-* multi-branch neural networks;
-* encoder–decoder architectures;
-* feature fusion;
-* skip connections;
-* multi-stage computation;
-* state-aware networks;
-* modular computational graphs.
-
----
-
-# 16. Why V3?
-
-V3 is currently recommended because it combines the architectural ideas developed throughout V1 and V2 into a more explicit dynamic framework.
-
-Compared with earlier versions, V3 provides:
-
-* **multi-level topology;**
-* **explicit initial/current node states;**
-* **state transfer modes;**
-* **flexible hyperedge operation sequences;**
-* **level-wise topological execution;**
-* **graph composition and merging;**
-* **a clearer separation between structure, computation, and state.**
-
-The goal of V3 is therefore not simply to provide another neural-network implementation, but to establish a more general computational abstraction in which:
+Together:
 
 ```text
-Nodes      → represent states
-Hyperedges → represent computation
-Topology   → represents execution structure
-Graph      → represents the complete dynamic system
+State + Computation + Topology
+            ↓
+        MHD Graph
 ```
 
 ---
 
-# 17. Development Roadmap
+# 14. Current Status
+
+**V3 is the current core implementation and the current release of the MHD Project.**
+
+The evolution of the framework can be summarized as:
+
+```text
+V1
+State-oriented experimental framework
+        ↓
+V2
+Formal hypergraph computational framework
+        ↓
+V3
+Multi-level dynamic state-computation framework
+```
+
+V1 provides the original experimental foundation.
+
+V2 formalizes the core hypergraph abstraction.
+
+V3 extends the abstraction toward multi-level, state-aware, composable dynamic computation.
+
+---
+
+# 15. Roadmap
 
 Future development may include:
 
-* stronger formalization of multi-hypergraph semantics;
-* richer state-transition mechanisms;
-* more expressive hyperedge composition;
-* improved graph serialization and reconstruction;
+* stronger mathematical formalization of the MHD abstraction;
+* more expressive State Transition mechanisms;
+* richer Computation operators;
+* graph serialization and reconstruction;
 * configuration-driven architecture generation;
-* reproducible benchmark suites;
-* stronger visualization and graph analysis;
-* improved packaging and release management;
+* automated architecture construction;
+* systematic benchmarks;
+* advanced topology visualization;
 * broader applications beyond the original medical-imaging setting.
 
 ---
 
-# 18. Contributing
+# 16. Contributing
 
 Contributions, issues, and discussions are welcome.
-
-```bash
-git checkout -b feature/your-feature
-git add .
-git commit -m "Add your feature"
-git push origin feature/your-feature
-```
-
-Then open a Pull Request on GitHub.
 
 For substantial architectural changes, please describe:
 
 1. the motivation;
-2. the affected abstraction;
+2. the affected State / Computation / Topology abstraction;
 3. compatibility with previous versions;
-4. any changes to topology/state semantics;
+4. changes to execution semantics;
 5. experimental or benchmark results where applicable.
 
 ---
 
-# 19. License
+# 17. License
 
 This project is licensed under the MIT License.
 
@@ -907,11 +787,11 @@ See [LICENSE](LICENSE) for details.
 
 ---
 
-# 20. Author
+# 18. Author
 
 **Souray Meng**
 
-GitHub: [https://github.com/souray0410](https://github.com/souray0410)
+GitHub: [souray0410](https://github.com/souray0410)
 
 ---
 
@@ -919,53 +799,110 @@ GitHub: [https://github.com/souray0410](https://github.com/souray0410)
 
 ## 1. Overview
 
-**MHD Project (Multi-Hypergraph Dynamic Project)** is an evolving deep-learning framework that models neural computation as a **dynamic multi-hypergraph**.
+**MHD Project (Multi-Hypergraph Dynamic Project)** is a dynamic hypergraph-based framework for structured neural computation.
 
-The central abstraction is:
+The framework is built around two symmetric computational primitives:
 
-* **Nodes** represent feature maps, hidden representations, or computational states.
-* **Hyperedges** represent convolution, transformation, fusion, and other computational operations.
-* **Topology** explicitly defines connectivity, execution order, and multi-level dependencies.
-* **State transitions** describe how node states are updated as computation proceeds.
+* **State** — the information carried by the computational graph.
+* **Computation** — the transformation applied to one or multiple States.
 
-Instead of representing a network only as a sequential chain,
+The fundamental relationship is:
 
 ```text
-Input → Layer → Layer → Layer → Output
+State
+  │
+  ▼
+Computation
+  │
+  ▼
+State
 ```
 
-MHD represents computation as a structured dynamic graph:
-
-```text
-Node
-  ↓
-Hyperedge
-  ↓
-Node State Update
-  ↓
-Next Topology Level
-```
-
-V1, V2, and V3 are successive implementations of the same underlying MHD concept.
-
-> **V3 is the current core implementation and the recommended starting point for new development.**
+Multiple States and Computations are organized by an explicit **Topology**, which defines the connectivity and execution structure of the complete system.
 
 ---
 
-## 2. Core Architecture
+## 2. Core Abstraction
 
-### Nodes
+### State
 
-A node represents a feature map or computational state.
+A State represents a computational state carried by the graph.
 
-V3 explicitly distinguishes:
+In V3, the State abstraction explicitly distinguishes:
 
 ```text
 initial_state
 current_state
 ```
 
-and provides multiple state-transfer modes:
+allowing the computational state to evolve during execution.
+
+---
+
+### Computation
+
+A Computation represents the transformation performed on one or multiple States.
+
+A single Computation may connect multiple inputs and multiple outputs:
+
+```text
+State A ─┐
+State B ─┼──► Computation ───► State C
+State D ─┘
+```
+
+Computations may internally contain multiple operations, such as convolution, normalization, activation, aggregation, projection, or other tensor transformations.
+
+---
+
+### Topology
+
+Topology describes:
+
+* connectivity;
+* input/output roles;
+* parameter ordering;
+* dependency relationships;
+* execution order;
+* multi-level execution structure.
+
+The resulting abstraction is:
+
+```text
+State         → computational state
+Computation  → computational transformation
+Topology     → computational structure
+Graph        → complete computational system
+```
+
+---
+
+# 3. Stateful Dynamic Computation
+
+A major objective of MHD is to make state evolution an explicit part of computation.
+
+A typical process can be represented as:
+
+```text
+Initial State
+      │
+      ▼
+Current State
+      │
+      ▼
+Computation
+      │
+      ▼
+State Transition
+      │
+      ▼
+Updated State
+      │
+      ▼
+Next Topology Level
+```
+
+V3 currently provides multiple state-transfer modes:
 
 ```text
 replace
@@ -976,85 +913,58 @@ min
 mul
 ```
 
-This allows nodes to participate in explicit state transitions during graph execution.
-
-### Hyperedges
-
-A hyperedge represents a computational transformation involving one or multiple nodes.
-
-An `MHD_Edge` may contain:
-
-* PyTorch modules;
-* Python callables;
-* partial functions;
-* string-based tensor operations.
-
-Therefore, operations such as convolution, normalization, activation, aggregation, projection, and fusion can be represented as hyperedge computations.
-
-### Topology
-
-The topology explicitly specifies:
-
-* node roles;
-* edge-node connectivity;
-* argument ordering;
-* execution dependencies;
-* multi-level execution stages.
-
-V2 uses:
-
-```text
-role_matrix
-sort_matrix
-```
-
-while V3 generalizes these to:
-
-```text
-role_matrices
-sort_matrices
-```
-
-with one pair of matrices per execution level.
-
 ---
 
-# 3. Evolution: V1 → V2 → V3
+# 4. Evolution: V1 → V2 → V3
 
-## V1 — Node-Oriented Architecture
-
-V1 established the original node-based design.
-
-The primary implementation is preserved in:
+V1, V2, and V3 are successive stages of the same MHD architecture.
 
 ```text
-node_toolkit/
-node_pipline/
-```
-
-rather than inside the current `V1/` directory.
-
-The V1 framework introduced:
-
-* dynamic convolutional computation through `DNet`;
-* hyperedge-oriented processing through `HDNet`;
-* multi-subgraph organization through `MHDNet`;
-* explicit node and connection structures;
-* dedicated training and experiment pipelines.
-
-The key conceptual transition was:
-
-```text
-Feature Map → Node
-Computation → Hyperedge-like operation
-Network → Structured node-based computation
+V1
+│
+├── State-oriented experimental framework
+└── Computation-oriented network structure
+        │
+        ▼
+V2
+│
+├── Formal State / Computation abstraction
+├── Explicit Topology
+└── Hypergraph computational framework
+        │
+        ▼
+V3
+│
+├── Multi-level Topology
+├── Stateful execution
+├── State transition
+├── Flexible Computation
+└── Graph composition
 ```
 
 ---
 
-## V2 — Formal Hypergraph Framework
+# 5. V1 — Node-based Experimental Framework
 
-V2 formalized the architecture into:
+V1 established the original MHD concept.
+
+The V1 codebase is organized as:
+
+```text
+V1/
+├── node_toolkit/
+└── node_pipline/
+```
+
+The original design introduced the idea of separating computational information from computational transformations and organizing them through explicit structural relationships.
+
+V1 served as the experimental foundation for the later formal MHD framework.
+
+---
+
+# 6. V2 — Formal Hypergraph Framework
+
+V2 transformed the original experimental design into a formal framework based on:
 
 ```text
 MHD_Node
@@ -1063,76 +973,67 @@ MHD_Topo
 MHD_Graph
 ```
 
-and introduced explicit topology matrices:
+This version introduced explicit:
 
 ```text
 role_matrix
 sort_matrix
 ```
 
-V2 also formalized node state management with:
+structures for describing graph connectivity and execution order.
 
-```text
-initial_state
-current_state
-```
-
-and separated the framework from experiment-specific network definitions.
-
-V2 therefore transformed the original implementation into a more general hypergraph computational framework.
+V2 therefore represented the transition from an experimental node-based network implementation to a general hypergraph computational framework.
 
 ---
 
-## V3 — Multi-Level Dynamic Hypergraph Framework
+# 7. V3 — Multi-Level Dynamic Hypergraph Framework
 
-V3 is the current core.
+**V3 is the current core implementation and current release.**
 
-It preserves the abstraction developed in V1 and V2 while extending it with:
+V3 retains the common MHD abstraction while extending it through:
 
-* multi-level topology;
-* explicit node state transitions;
-* state-transfer modes;
-* flexible edge operation sequences;
-* level-wise topological execution;
-* graph merging and composition.
+* multi-level Topology;
+* explicit State transitions;
+* dynamic State management;
+* flexible Computation blocks;
+* level-wise execution;
+* graph composition.
 
-The central V3 abstraction is:
+The core abstraction is:
 
 ```text
-MHD_Node
-      +
-MHD_Edge
-      +
-MHD_Topo
-      ↓
-MHD_Graph
+State
+   +
+Computation
+   +
+Topology
+   ↓
+MHD Graph
 ```
-
-with state evolution across topology levels.
 
 ---
 
-# 4. V3 Multi-Level Execution
+## 7.1 Multi-Level Topology
 
-V3 represents topology as multiple execution levels:
+V3 supports multiple execution levels:
 
 ```text
 Level 0
    ↓
-Hyperedge Computation
+Computation
    ↓
-Node State Update
+State Update
    ↓
 Level 1
    ↓
-Hyperedge Computation
+Computation
    ↓
-Node State Update
+State Update
+   ↓
+Level 2
    ↓
 ...
 ```
-
-This enables the framework to represent computational structures that are not naturally described as a single static sequential graph.
 
 Each level may define its own:
 
@@ -1141,11 +1042,51 @@ role_matrix
 sort_matrix
 ```
 
-allowing independent dependency analysis and topological scheduling.
+allowing independent dependency analysis and execution scheduling.
 
 ---
 
-# 5. Project Structure
+## 7.2 Stateful Execution
+
+V3 explicitly maintains:
+
+```text
+initial_state
+current_state
+```
+
+and updates current state during graph execution.
+
+This enables a dynamic computational interpretation in which States evolve through a sequence of Computations and Topology levels.
+
+---
+
+## 7.3 Flexible Computations
+
+A Computation can contain a sequence of operations:
+
+```text
+Computation
+   │
+   ├── Operation 1
+   ├── Operation 2
+   ├── Operation 3
+   └── ...
+```
+
+This provides a flexible mechanism for representing complex computational blocks inside the hypergraph.
+
+---
+
+## 7.4 Graph Composition
+
+V3 also supports combining multiple MHD graphs into larger computational structures.
+
+This enables modular construction of complex architectures from smaller graph components.
+
+---
+
+# 8. Project Structure
 
 ```text
 MHD_Project/
@@ -1154,28 +1095,10 @@ MHD_Project/
 ├── LICENSE
 │
 ├── V1/
-│   └── ...
-│
-├── node_toolkit/
-│   ├── node_dataset.py
-│   ├── node_net.py
-│   ├── node_results.py
-│   ├── node_utils.py
-│   ├── reorgan.py
-│   └── split_Tr.py
-│
-├── node_pipline/
-│   ├── node_train.py
-│   ├── train_UniConnNetI.py
-│   ├── train_UniConnNetII.py
-│   ├── train_UniConnNetIII.py
-│   ├── test_UniConnNetI.py
-│   ├── test_UniConnNetII.py
-│   ├── test_UniConnNetIII.py
-│   └── MICCAI2026/
+│   ├── node_toolkit/
+│   └── node_pipline/
 │
 ├── V2/
-│   ├── NULL
 │   └── mhd_toolkit/
 │       ├── MHD_Framework_V2.py
 │       ├── MHD_Utils_V2.py
@@ -1191,14 +1114,19 @@ MHD_Project/
 └── tools/
 ```
 
+The first version is preserved under `V1/` as the historical foundation of the project.
+
+V2 provides the first formal MHD toolkit.
+
+V3 is the current core framework.
+
 ---
 
-# 6. Installation
+# 9. Installation
 
 ```bash
 git clone https://github.com/souray0410/MHD_Project.git
 cd MHD_Project
-pip install -r requirements.txt
 ```
 
 Recommended environment:
@@ -1209,23 +1137,23 @@ PyTorch 1.10+
 CUDA recommended for large-scale experiments
 ```
 
----
-
-# 7. Latest Release
-
-For stable and reproducible usage, please use the latest tagged release:
-
-**Latest Release:**
-[https://github.com/souray0410/MHD_Project/releases/latest](https://github.com/souray0410/MHD_Project/releases/latest)
-
-**All Releases:**
-[https://github.com/souray0410/MHD_Project/releases](https://github.com/souray0410/MHD_Project/releases)
-
-New development is primarily focused on **V3**.
+Install dependencies using the configuration associated with the selected release.
 
 ---
 
-# 8. V3 Quick Start
+# 10. Latest Release
+
+The **latest release is V3**.
+
+**[Download V3 / Latest Release](https://github.com/souray0410/MHD_Project/releases/latest)**
+
+**[View All Releases](https://github.com/souray0410/MHD_Project/releases)**
+
+New development is primarily focused on V3.
+
+---
+
+# 11. V3 Quick Start
 
 ```python
 from V3.mhd_toolkit.MHD_Framework_V3 import (
@@ -1236,11 +1164,11 @@ from V3.mhd_toolkit.MHD_Framework_V3 import (
 )
 ```
 
-A graph is constructed from:
+A conceptual MHD graph can be constructed from:
 
 ```text
-Nodes
-Edges
+State
+Computation
 Topology
 ```
 
@@ -1250,85 +1178,75 @@ and executed through:
 graph.forward()
 ```
 
-The resulting computation is governed by the explicit topology and node state transitions.
+---
+
+# 12. Design Principles
+
+MHD follows four fundamental principles:
+
+### State
+
+The graph carries explicit computational States.
+
+### Computation
+
+Transformations are represented as explicit Computations.
+
+### Topology
+
+Connectivity and execution order are explicitly represented.
+
+### Composition
+
+Complex graphs can be constructed from smaller computational structures.
+
+The unified abstraction is:
+
+```text
+State + Computation + Topology
+            ↓
+        MHD Graph
+```
 
 ---
 
-# 9. Design Principles
+# 13. Current Status
 
-MHD is built around four principles:
+**V3 is the current core framework and current release.**
 
-### Explicit Structure
-
-Network connectivity should be represented explicitly.
-
-### Computation–Structure Separation
-
-The topology defines **where and when** computation occurs, while hyperedges define **what computation** is performed.
-
-### State-Aware Execution
-
-Nodes maintain computational states and participate in explicit state transitions.
-
-### Composability
-
-MHD graphs are designed to be modular and composable, allowing complex architectures to be assembled from smaller computational subgraphs.
-
----
-
-# 10. Current Status
-
-**V3 is the current core framework and the recommended foundation for future development.**
-
-V1 and V2 remain in the repository as historical and architectural milestones.
-
-The overall evolution can be summarized as:
+The project evolution is summarized as:
 
 ```text
 V1
-Node-oriented neural architecture
+State-oriented experimental framework
         ↓
 V2
 Formal hypergraph computational framework
         ↓
 V3
-Multi-level, state-aware dynamic hypergraph framework
+Multi-level dynamic state-computation framework
 ```
 
 ---
 
-# 11. Roadmap
+# 14. Roadmap
 
 Potential future directions include:
 
 * formal mathematical characterization of the MHD abstraction;
-* richer state-transition semantics;
-* more expressive hyperedge operators;
-* graph serialization and reconstruction;
-* automated graph generation;
-* configuration-based architecture definition;
+* richer State Transition mechanisms;
+* more expressive Computation operators;
+* graph serialization;
+* graph reconstruction;
+* automated architecture generation;
+* configuration-driven graph construction;
 * systematic benchmarks;
-* advanced graph visualization;
-* broader applications beyond medical imaging.
+* advanced graph analysis and visualization;
+* applications beyond the original medical-imaging setting.
 
 ---
 
-# 12. Contributing
-
-Contributions and discussions are welcome.
-
-```bash
-git checkout -b feature/your-feature
-git add .
-git commit -m "Add your feature"
-git push origin feature/your-feature
-```
-
-Then open a Pull Request.
-
----
-
-# 13. License
+# 15. License
 
 MIT License.
 
@@ -1336,8 +1254,8 @@ See [LICENSE](LICENSE) for details.
 
 ---
 
-# 14. Author
+# 16. Author
 
 **Souray Meng**
 
-GitHub: [https://github.com/souray0410](https://github.com/souray0410)
+GitHub: [souray0410](https://github.com/souray0410)
