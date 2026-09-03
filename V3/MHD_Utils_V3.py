@@ -7,13 +7,14 @@ License: MIT
 """
 
 import torch
+import torch.distributed as dist
 import random
 import numpy as np
 import torch.nn as nn
-import sys
 import os
 from torch.utils.data import Dataset, DataLoader
 from typing import Dict, List, Tuple, Callable, Any, Union, Optional, Sequence, Set
+from dataclasses import dataclass
 from pathlib import Path
 from collections import defaultdict
 import logging
@@ -24,11 +25,115 @@ import warnings
 import gc
 import shutil
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from MHD_Framework_V3 import (
+from .MHD_Framework_V3 import (
     MHD_Node, MHD_Edge, MHD_Topo, MHD_Graph,
 )
+
+
+# ===================== 单卡 / DDP 执行适配 =====================
+
+@dataclass(frozen=True)
+class MHD_DistributedContext:
+    """One-process-per-device execution metadata for MHD graphs."""
+
+    rank: int
+    local_rank: int
+    world_size: int
+    device: torch.device
+    backend: str
+
+    @property
+    def is_main(self) -> bool:
+        return self.rank == 0
+
+    @property
+    def distributed(self) -> bool:
+        return self.world_size > 1
+
+
+def initialize_mhd_distributed(backend: Optional[str] = None) -> MHD_DistributedContext:
+    """Initialize torch.distributed from torchrun environment variables when needed."""
+
+    rank = int(os.environ.get("RANK", "0"))
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    selected_backend = backend or ("nccl" if torch.cuda.is_available() else "gloo")
+    if torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
+        device = torch.device("cuda", local_rank)
+    else:
+        device = torch.device("cpu")
+    if world_size > 1 and not dist.is_initialized():
+        dist.init_process_group(backend=selected_backend, init_method="env://")
+    return MHD_DistributedContext(rank, local_rank, world_size, device, selected_backend)
+
+
+def destroy_mhd_distributed() -> None:
+    if dist.is_available() and dist.is_initialized():
+        dist.destroy_process_group()
+
+
+def mhd_barrier(context: MHD_DistributedContext) -> None:
+    if context.distributed:
+        dist.barrier()
+
+
+def mhd_all_reduce_mean(value: torch.Tensor, context: MHD_DistributedContext) -> torch.Tensor:
+    result = value.detach().clone()
+    if context.distributed:
+        dist.all_reduce(result, op=dist.ReduceOp.SUM)
+        result /= context.world_size
+    return result
+
+
+def mhd_all_gather_object(value: Any, context: MHD_DistributedContext) -> List[Any]:
+    if not context.distributed:
+        return [value]
+    gathered: List[Any] = [None for _ in range(context.world_size)]
+    dist.all_gather_object(gathered, value)
+    return gathered
+
+
+class MHD_ForwardAdapter(nn.Module):
+    """Expose mutable-node MHD execution through a conventional module forward call."""
+
+    def __init__(
+        self,
+        graph: MHD_Graph,
+        input_nodes: Sequence[str],
+        output_nodes: Sequence[str],
+        levels: Optional[Sequence[int]] = None,
+    ) -> None:
+        super().__init__()
+        self.graph = graph
+        self.input_nodes = tuple(input_nodes)
+        self.output_nodes = tuple(output_nodes)
+        self.levels = None if levels is None else tuple(levels)
+        missing = [name for name in (*self.input_nodes, *self.output_nodes) if graph.get_node_by_name(name) is None]
+        if missing:
+            raise ValueError(f"Unknown MHD adapter nodes: {missing}")
+
+    def forward(self, input_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        absent = set(self.input_nodes) - set(input_dict)
+        if absent:
+            raise ValueError(f"Missing MHD inputs: {sorted(absent)}")
+        batch_sizes = {int(input_dict[name].shape[0]) for name in self.input_nodes}
+        if len(batch_sizes) != 1:
+            raise ValueError(f"Inconsistent MHD input batch sizes: {sorted(batch_sizes)}")
+        self.graph.update_batch_size(batch_sizes.pop())
+        for node in self.graph.nodes:
+            node.reset()
+        for name in self.input_nodes:
+            self.graph.get_node_by_name(name).current_state = input_dict[name]
+        self.graph.forward(levels=None if self.levels is None else list(self.levels))
+        return {name: self.graph.get_node_by_name(name).current_state for name in self.output_nodes}
+
+
+def unwrap_mhd_graph(module: nn.Module) -> MHD_Graph:
+    candidate = module.module if hasattr(module, "module") else module
+    if not isinstance(candidate, MHD_ForwardAdapter):
+        raise TypeError(f"Expected MHD_ForwardAdapter, found {type(candidate)!r}")
+    return candidate.graph
 
 # ===================== 状态保存/加载工具函数 =====================
 
@@ -878,3 +983,137 @@ class MHD_Inferencer:
         self.graph.forward()
         logits = self.graph.get_node_by_name("logits").current_state
         return logits.argmax(dim=1).tolist()
+
+# ===================== 孤立节点 & 孤立边自动修剪工具 =====================
+
+def prune_isolated_graph(graph: MHD_Graph, verbose: bool = True) -> MHD_Graph:
+    """
+    自动检测并删除图中所有孤立节点和孤立边。
+
+    孤立节点：在所有层级的 role 矩阵中，该列全为 0（无入度也无出度）。
+    孤立边：在所有层级的 role 矩阵中，该行全为 0（未连接任何节点）。
+
+    设计哲学：
+        - Framework 允许孤立元素存在（纯数据载体或占位）。
+        - Utils 提供主动清理机制，在训练前释放冗余显存。
+        - 删除前会打印详细警告，列出所有受影响的节点和边，便于用户复核。
+
+    Args:
+        graph: MHD_Graph 实例
+        verbose: 是否打印详细日志
+
+    Returns:
+        修剪后的原图实例（原地修改）
+    """
+    if not graph.topo or graph.num_levels == 0:
+        if verbose:
+            print("⚠️ 图无拓扑信息，跳过修剪。")
+        return graph
+
+    num_edges_orig = len(graph.edges)
+    num_nodes_orig = len(graph.nodes)
+    device = graph.device
+
+    # ----- 1. 计算孤立节点掩码 -----
+    # 聚合所有层级，按列（节点）检查是否出现过非零值
+    node_active = torch.zeros(num_nodes_orig, dtype=torch.bool, device=device)
+    for role in graph.topo.role_matrices:
+        node_active = node_active | (role != 0).any(dim=0)   # any(dim=0) 按列
+
+    isolated_node_ids = [i for i in range(num_nodes_orig) if not node_active[i]]
+    isolated_nodes = [graph.get_node_by_id(i) for i in isolated_node_ids if graph.get_node_by_id(i) is not None]
+
+    # ----- 2. 计算孤立边掩码 -----
+    # 聚合所有层级，按行（边）检查是否出现过非零值
+    edge_active = torch.zeros(num_edges_orig, dtype=torch.bool, device=device)
+    for role in graph.topo.role_matrices:
+        edge_active = edge_active | (role != 0).any(dim=1)   # any(dim=1) 按行
+
+    isolated_edge_ids = [i for i in range(num_edges_orig) if not edge_active[i]]
+    isolated_edges = [graph.get_edge_by_id(i) for i in isolated_edge_ids if graph.get_edge_by_id(i) is not None]
+
+    # ----- 3. 若无孤立元素，直接返回 -----
+    if not isolated_nodes and not isolated_edges:
+        if verbose:
+            print("✅ 未检测到孤立节点或孤立边，无需清理。")
+        return graph
+
+    # ----- 4. 打印警告（醒目输出） -----
+    if verbose:
+        print("=" * 80)
+        if isolated_nodes:
+            names = ", ".join([n.name for n in isolated_nodes])
+            print(f"⚠️ 检测到 {len(isolated_nodes)} 个孤立节点（出入度均为0）: {names}")
+        if isolated_edges:
+            names = ", ".join([e.name for e in isolated_edges])
+            print(f"⚠️ 检测到 {len(isolated_edges)} 条孤立边（未连接任何节点）: {names}")
+        print("📌 提示：这些元素将被删除。若某些元素不应被删，请检查拓扑配置。")
+        print("=" * 80)
+
+    # ----- 5. 执行删除操作 -----
+    # 5.1 计算保留的节点 ID 和边 ID
+    keep_node_ids = [i for i in range(num_nodes_orig) if i not in isolated_node_ids]
+    keep_edge_ids = [i for i in range(num_edges_orig) if i not in isolated_edge_ids]
+
+    if not keep_node_ids or not keep_edge_ids:
+        raise RuntimeError("❌ 删除后图为空（无节点或无边），操作被阻止。请检查拓扑配置。")
+
+    # 5.2 裁剪拓扑矩阵（同时删除孤立行和孤立列）
+    new_role_matrices = []
+    new_sort_matrices = []
+    keep_node_tensor = torch.tensor(keep_node_ids, device=device)
+    keep_edge_tensor = torch.tensor(keep_edge_ids, device=device)
+
+    for role, sort_mat in zip(graph.topo.role_matrices, graph.topo.sort_matrices):
+        # 先按行删除孤立边，再按列删除孤立节点（顺序无关）
+        new_role = role.index_select(dim=0, index=keep_edge_tensor)   # 行（边）
+        new_role = new_role.index_select(dim=1, index=keep_node_tensor) # 列（节点）
+        new_sort = sort_mat.index_select(dim=0, index=keep_edge_tensor)
+        new_sort = new_sort.index_select(dim=1, index=keep_node_tensor)
+        new_role_matrices.append(new_role)
+        new_sort_matrices.append(new_sort)
+
+    graph.topo.role_matrices = new_role_matrices
+    graph.topo.sort_matrices = new_sort_matrices
+
+    # 5.3 先从集合中取出对象，再修改基于 ID 的哈希值。
+    # MHD_Node/MHD_Edge 的 __hash__ 依赖 id；对象留在 set 中时原地修改 id
+    # 会破坏集合的哈希桶，导致后续查找或删除行为不确定。
+    kept_nodes = sorted(
+        (node for node in graph.nodes if node.id in keep_node_ids),
+        key=lambda x: x.id,
+    )
+    kept_edges = sorted(
+        (edge for edge in graph.edges if edge.id in keep_edge_ids),
+        key=lambda x: x.id,
+    )
+
+    for new_id, node in enumerate(kept_nodes):
+        node.id = new_id
+    for new_id, edge in enumerate(kept_edges):
+        edge.id = new_id
+
+    # ID 稳定后重新创建集合，确保 set 的内部哈希与对象当前 ID 一致。
+    graph.nodes = set(kept_nodes)
+    graph.edges = set(kept_edges)
+
+    # 5.5 重建内部索引（节点和边映射）
+    graph._build_indices()
+
+    # MHD_Graph 在初始化时已把所有边模块注册到 ModuleDict。仅更新
+    # graph.edges 不会自动注销已裁剪模块，因此必须重建注册容器，保证
+    # parameters/state_dict/optimizer/显存中只包含当前拓扑的活跃模块。
+    graph.edge_module_map = nn.ModuleDict()
+    graph._register_all_params()
+
+    # 5.6 验证维度一致性
+    graph.topo.validate_topo(len(graph.edges), len(graph.nodes))
+
+    # 5.7 重新计算拓扑排序（因为边变了）
+    graph.compact_topological_sort()
+
+    if verbose:
+        print(f"🧹 修剪完成！移除 {len(isolated_nodes)} 个孤立节点，{len(isolated_edges)} 条孤立边。")
+        print(f"   当前节点数: {len(graph.nodes)}，边数: {len(graph.edges)}")
+
+    return graph
