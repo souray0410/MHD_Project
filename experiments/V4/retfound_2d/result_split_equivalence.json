@@ -1,0 +1,20 @@
+{
+  "device": "cuda",
+  "modalities": {
+    "cfp": {
+      "max_absolute_difference": 0.0,
+      "shape": [
+        1,
+        5
+      ]
+    },
+    "oct": {
+      "max_absolute_difference": 0.0,
+      "shape": [
+        1,
+        5
+      ]
+    }
+  },
+  "status": "passed"
+}
